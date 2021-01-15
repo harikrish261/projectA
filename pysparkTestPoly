@@ -1,0 +1,329 @@
+# coding: utf-8
+
+# In[1]:
+
+from configparser import ConfigParser
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType
+from pyspark.sql import SparkSession
+from io import StringIO
+import json
+
+spark = SparkSession.builder.appName("PolySystems_comparision").enableHiveSupport().getOrCreate()
+sqlContext = spark
+sc = spark.sparkContext
+
+ConfigFilePath = "/user/htumpudi/poly.ini"
+#policy         = "axa_uflats_policy_uat.visl_policy"
+#rider          = "axa_us_policy_uat.life_rider"
+#fund           = "axa_us_policy_uat.policy_fund"
+#loan           = "axa_us_policy_uat.loan"
+
+
+# In[2]:
+
+#domain_out.columns
+
+
+# In[5]:
+
+domain_out.count()
+
+
+# In[2]:
+
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_03_07/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_09_07/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_05_08/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_20_08_1/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_26_08_2/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_27_08/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_31_08/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_09_09_t1/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_10_09/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_29_09_2")
+#domain_out = spark.read.csv("/user/htumpudi/poly_output_13_11")
+domain_out = spark.read.csv("/user/htumpudi/poly_output_15_12_1")
+
+#domain_out = spark.read.csv("/user/htumpudi/poly_andesa_output_04_08_1/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_andesa_output_20_10/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_andesa_output_05_11/*")
+#domain_out = spark.read.csv("/user/htumpudi/poly_andesa_output_09_11/*")
+domain_out = domain_out.withColumn("output",domain_out["_c0"]).drop("_c0")
+#mappingHdfsDomain = "/user/htumpudi/metadata_customized.txt"
+#mappingHdfsDomain = "/user/htumpudi/metadata_nonRepitative"
+#mappingHdfsDomain = "/user/htumpudi/metadata_nonRepitative_andesa"
+#mappingHdfsDomain = "/user/htumpudi/metadata_flat"
+#mappingHdfsDomain = "/user/htumpudi/metadata_benefit"
+#mappingHdfsDomain = "/user/htumpudi/metadata_benefit_andesa"
+#mappingHdfsDomain = "/user/htumpudi/metadata_mso"
+#mappingHdfsDomain = "/user/htumpudi/metadata_account"
+mappingHdfsDomain = "/user/htumpudi/metadata.txt"
+mappingDomain = sc.textFile(mappingHdfsDomain)
+mappingDom = mappingDomain.collect()
+#columnNames_Dom = [row.split(",")[1] for row in mappingDom]
+
+
+# In[3]:
+
+domain_out.count()
+
+
+# In[3]:
+
+sqlStringDom = "select "
+maxiDom = len(mappingDom)
+cntDom = 1
+for row in mappingDom:
+        mdMappingDom = row.split(",")
+        start = str(int(mdMappingDom[3])+1);
+        length   = mdMappingDom[4]
+        if(cntDom == maxiDom):
+            sqlStringDom += "substr(output,"+start+","+length+") as "+mdMappingDom[1]+" from domain_out"
+        else:
+            sqlStringDom += "substr(output,"+start+","+length+") as "+mdMappingDom[1]+", "
+        cntDom = cntDom+1
+
+
+# In[4]:
+
+domain_out.registerTempTable("domain_out")
+finaldfDom = sqlContext.sql(sqlStringDom)
+#finaldfDom = finaldfDom.drop("ROPR_Percentage").drop("Cur_EDI").drop("LTC_NFO_STAT")
+#finaldfDom = finaldfDom.drop("Paid_to_Date").drop("ROPR_Percentage").drop("ROPR_Interest_rate").drop("LTC_CLAIM_DATE").drop("WAIVER_DISABLED_DATE").drop("Enhanced_Cash_Value_Indicator").drop("CVAT_Indicator")
+finaldfDom.registerTempTable("finaldfDom")
+
+
+# In[6]:
+
+finaldfDom.count()
+
+
+# In[15]:
+
+#temp = sqlContext.sql("select substr(output,19,9) as pol_no,output from domain_out");
+#temp.registerTempTable("temp")
+#sqlContext.sql("select * from temp where pol_no in ('160400103')").show(5,False)
+
+
+# In[9]:
+
+#sqlContext.sql("select distinct Product_Class from finaldfDom").show(100,False)
+
+
+# In[6]:
+
+sqlContext.sql("select Contract_number,cash_surrender_value from finaldfDom where Contract_number in ('038229956','039208773','039215460','039221501','039235138','039241219','039245510','039259961','039262573','039267286')").show(1000,False)
+
+
+# In[5]:
+
+sqlContext.sql("select distinct Sex_Code_1 from finaldfDom ").show(1000,False)
+
+
+# In[6]:
+
+sqlContext.sql("select Sex_Code_1 from finaldfDom where Contract_number in ('049224395')").show(5,False)
+
+
+# In[15]:
+
+#sqlContext.sql("select distinct Product_Segment_ID_1 from finaldfDom ").show(1000,False)
+
+
+# In[11]:
+
+#sqlContext.sql("select * from finaldfDom where Contract_number in ('042326255','042327658')").show(2,False)
+sqlContext.sql("select * from finaldfDom where Contract_number in ('162201355')").show(2,False)
+
+
+# In[ ]:
+
+
+
+
+# In[6]:
+
+#life70
+prod_out = spark.read.csv("/user/htumpudi/pol70_201912.txt")
+
+#andesa
+#prod_out = spark.read.csv("/user/htumpudi/ULMASTER.ANDESA_201912.FILE")
+prod_out = prod_out.withColumn("output",prod_out["_c0"]).drop("_c0")
+#prod_out = prod_out.repartition(200)
+#mappingHdfsAddress = "/user/htumpudi/metadata_nonRepitative"
+#mappingHdfsAddress = "/user/htumpudi/metadata_nonRepitative_andesa"
+#mappingHdfsAddress = "/user/htumpudi/metadata_flat"
+#mappingHdfsAddress = "/user/htumpudi/metadata_benefit"
+#mappingHdfsAddress = "/user/htumpudi/metadata_benefit_andesa"
+#mappingHdfsAddress = "/user/htumpudi/metadata_mso"
+#mappingHdfsAddress = "/user/htumpudi/metadata_account"
+mappingHdfsAddress = "/user/htumpudi/metadata.txt"
+
+mappingDf = sc.textFile(mappingHdfsAddress)
+mdcMapping = mappingDf.collect()
+
+
+# In[7]:
+
+sqlString = "select "
+maxi = len(mdcMapping)
+cnt = 1
+for row in mdcMapping:
+        mdMapping = row.split(",")
+        start = str(int(mdMapping[3])+1);
+        length   = mdMapping[4]
+        if(cnt == maxi):
+            sqlString += "substr(output,"+start+","+length+") as "+mdMapping[1]+" from prod_out"
+        else:
+            sqlString += "substr(output,"+start+","+length+") as "+mdMapping[1]+", "
+        cnt = cnt+1
+       
+
+
+# In[8]:
+
+prod_out.registerTempTable("prod_out")
+finaldf = sqlContext.sql(sqlString)
+#finaldf = finaldf.drop("ROPR_Percentage").drop("Cur_EDI").drop("LTC_NFO_STAT")
+#finaldf = finaldf.drop("Paid_to_Date").drop("ROPR_Percentage").drop("ROPR_Interest_rate").drop("LTC_CLAIM_DATE").drop("WAIVER_DISABLED_DATE").drop("Enhanced_Cash_Value_Indicator").drop("CVAT_Indicator")
+finaldf.registerTempTable("finaldf")
+
+
+# In[ ]:
+
+sqlContext.sql("select contact Number form finaldfDom"0)
+
+
+# In[10]:
+
+sqlContext.sql("select Contract_number,cash_surrender_value from finaldf where Contract_number in ('038229956','039208773','039215460','039221501','039235138','039241219','039245510','039259961','039262573','039267286')").show(1000,False)
+
+
+# In[12]:
+
+sqlContext.sql("select cash_surrender_value,Contract_number  from finaldf where Contract_number in ('039241219','038200771','036211934')").show(1000,False)
+
+
+# In[16]:
+
+sqlContext.sql("select sum(cash_surrender_value) from finaldf ").show(1000,False)
+
+
+# In[16]:
+
+sqlContext.sql("select distinct Sex_Code_1 from finaldf ").show(1000,False)
+
+
+# In[17]:
+
+sqlContext.sql("select distinct Product_Segment_ID_1 from finaldf ").show(1000,False)
+
+
+# In[12]:
+
+sqlContext.sql("select Contract_number, Cash_Surrender_Value from finaldf where Contract_number in ('042326255','042327658')").show(2,False)
+
+
+# In[20]:
+
+sqlContext.sql("select Sex_Code_1, Contract_number from finaldf where Contract_number in ('161202623','160205173','169305828')").show(10,False)
+
+
+# In[14]:
+
+#sqlContext.sql("select distinct Market_segment_ID from finaldf").show(100,False)
+
+
+# In[5]:
+
+finaldf.count()
+
+
+# In[12]:
+
+adf = finaldf.alias("d1").join(finaldfDom.alias("d2"), F.col("d1.Contract_Number") == F.col("d2.Contract_Number"), "inner")
+
+
+# In[13]:
+
+adf.count()
+
+
+# In[10]:
+
+sqlContext.sql("select * from finaldf where Contract_number = '162201355'").show(2,False)
+
+
+# In[9]:
+
+df_result_1 = finaldf.alias("d1").join(finaldfDom.alias("d2"), F.col("d1.Contract_Number") == F.col("d2.Contract_Number"), "left_anti")
+
+
+# In[10]:
+
+df_result_1 = finaldfDom.alias("d1").join(finaldf.alias("d2"), F.col("d1.Contract_Number") == F.col("d2.Contract_Number"), "left_anti")
+
+
+# In[11]:
+
+df_result_1.count()
+
+
+# In[12]:
+
+df_result_1.select("Contract_Number","Benefit_Status_1").show(30,False)
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[8]:
+
+columns = finaldf.columns
+
+
+# In[9]:
+
+df_result = finaldf.alias("d1").join(finaldfDom.alias("d2"), F.col("d1.Contract_Number") == F.col("d2.Contract_Number"), "left")
+
+
+# In[12]:
+
+df_result.count()
+
+
+# In[10]:
+
+columnNames_Dom = [row.split(",")[1] for row in mappingDom]
+for name in columns:
+    #print(name)
+    df_result = df_result.withColumn(name + "_temp", F.when(F.col("d1." + name) != F.col("d2." + name), F.lit(name)))
+
+
+# In[11]:
+
+dffinal_sample2 = df_result.withColumn("diff_column_names", F.concat_ws(",", *map(lambda name: F.col(name + "_temp"), columns))).select("d1.*", "diff_column_names")
+
+
+# In[16]:
+
+dffinal_sample2.count()
+
+
+# In[12]:
+
+#dffinal_sample2.coalesce (1).write.format("csv").option("header", "true").mode("append").save("/user/htumpudi/life70_mso_comp_3")
+dffinal_sample2.coalesce (1).write.format("csv").option("header", "true").mode("append").save("/user/htumpudi/andesa_comp_account_1")
+
+
+# In[13]:
+
+dffinal_sample2.show(10,False)
