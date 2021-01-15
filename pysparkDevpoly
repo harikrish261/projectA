@@ -1,0 +1,310 @@
+# coding: utf-8
+
+# In[1]:
+
+from configparser import ConfigParser
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType
+from pyspark.sql import SparkSession
+from pyspark.sql import Window
+from io import StringIO
+import json
+
+spark = SparkSession.builder.appName("PolySystems").enableHiveSupport().getOrCreate()
+sqlContext = spark
+sc = spark.sparkContext
+
+ConfigFilePath = "/user/htumpudi/poly.ini"
+#policy         = "axa_us_policy_uat.visl_policy_bkup20200701"
+policy         = "axa_us_policy_uat.visl_policy"
+rider          = "axa_us_policy_uat.life_rider"
+#fund           = "axa_us_policy_uat.policy_fund_bkup20200701"
+fund           = "axa_us_policy_uat.policy_fund"
+loan           = "axa_us_policy_uat.loan"
+
+
+# In[2]:
+
+def readConfiguration(path):
+    confStr = sc.textFile(path).collect()
+    confBuf = StringIO("\n".join(confStr))
+    config = ConfigParser()
+    config.read_file(confBuf)
+    return config
+
+def getColumnList(config,section,label):
+    columnList =json.loads(config.get(section,label))
+    return columnList
+
+
+# In[3]:
+
+def createRepetationValues(listvalues,source,default):
+    repetationCount = 0
+    if(source == "benefit"):
+        repetationCount = 30
+        #strAppend       = "                    000  0000000000000000000000000000000000000000000000000000000  00000000000      "
+        strAppend       = "              0000 0000  0000000000000000000000000000000000000000000000000000000  00000000000000   "
+    elif (source == "fund"):
+        repetationCount =  144
+        strAppend       = "   0000000000000000000000000000000000000000000000000000000000000000         "
+        #strAppend       = "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+    elif(source == "account"):
+        repetationCount = 182
+        strAppend       = "      0000000000000000000000000000000000000"
+        #strAppend       = "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+    elif(source == "flat"):
+        repetationCount = 3
+        #strAppend       = "00 000000000000000000000"
+        strAppend       = "  0000000000000000000000"
+   
+    if(default == "True"):
+        length = 0
+        const = repetationCount-length
+        listvalues = []
+        for x in range(const):
+            listvalues.append(strAppend)
+        else:
+            print("Finally finished!")
+    else:
+        length = len(listvalues)
+        const = repetationCount-length
+        for x in range(const):
+            listvalues.append(strAppend)
+        else:
+            print("Finally finished!")
+    #length = len(listvalues)
+   
+   
+    str1 = ""
+    # traverse in the string  
+    for item in listvalues:  
+        str1 += item
+    return str1
+
+createDefaultValues = F.udf(createRepetationValues)
+
+
+# In[4]:
+
+def createSection(sectionName,tableName,admin_system):
+    config          = readConfiguration(ConfigFilePath)
+    colMapping_fund = getColumnList(config,'metadata',sectionName)
+    columnNames     = [row.split(",")[0] for row in colMapping_fund]
+    df              = sqlContext.table(tableName)
+    df = df.withColumn("filler",F.lit("  "))
+    if (sectionName == 'fund'):
+        df = df.where((F.col("mso_segment_account_value_amount") != '')| (F.col("mso_segment_account_value_amount").isNotNull()))
+        df = df.withColumn("fund_id",F.when((F.col("mso_segment_account_value_amount").isNotNull()),df["fund_id"]))
+        #df = df.withColumn('fund_name',F.lit("SP500"))
+        df  =  df.withColumn('fund_name',F.when(df["fund_id"].substr(1,2) == "WP","SP500").when(df["fund_id"].substr(1,2) == "WQ","EAFE")        .when(df["fund_id"].substr(1,2) == "WR","R2000").when(df["fund_id"].substr(1,2) == "WS","SP3Y1").when(df["fund_id"].substr(1,2) == "WT","SP3Y2")        .when(df["fund_id"].substr(1,2) == "WU","SP3Y3").when(df["fund_id"].substr(1,2) == "WV","SPSEL").when(df["fund_id"].substr(1,2) == "WW","EAFES")        .when(df["fund_id"].substr(1,2) == "WX","R2KS").when(df["fund_id"].substr(1,2) == "WY","SP3S1").when(df["fund_id"].substr(1,2) == "WZ","SP3S2")        .when(df["fund_id"].substr(1,2) == "WA","SP3S3").otherwise("SP500"))
+        #df = df.withColumn('fund_name',F.trim(F.col("fund_name")))
+        #df = df.withColumn('fund_name',F.when((df["fund_id"] !='') & (F.col("fund_name").isNull()) & (df["fund_maturity_date"] !='00000000'),"SP500"))
+        #df = df.withColumn('fund_name',F.when((F.col("fund_name").isNull()) ,"SP500"))
+       
+       
+    df = df.select("pol_no",*columnNames).where((F.col("vltn_date")=="2019-12-31")&(F.col("admin_system_code") == admin_system))
+   
+    print("before for loop")
+    for row in colMapping_fund:
+        mapping = row.split(",")
+        if mapping[1] == "D":
+            df = df.withColumn(mapping[0],F.lpad(F.coalesce(F.regexp_replace(df[mapping[0]].cast("decimal("+mapping[2]+","+mapping[3]+")").cast(StringType()),"\\.", ""),F.lit("0")),int(mapping[2]),"0"))
+        elif mapping[1] == "I":
+            df = df.withColumn(mapping[0],F.lpad(F.coalesce(F.regexp_replace(df[mapping[0]].cast(StringType()),"\\-", ""),F.lit("0")),int(mapping[2]),"0"))
+        else:
+            df = df.withColumn(mapping[0],F.rpad(F.coalesce(df[mapping[0]],F.lit(" ")),int(mapping[2])," "))
+
+   
+    print("before concat")  
+   
+    if (sectionName == 'fund'):
+        df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result","fund_id")
+        w = Window.partitionBy('pol_no').orderBy('fund_id')
+        df_agg = df.withColumn('sorList', F.collect_list('result').over(w)).groupBy('pol_no').agg(F.max('sorList').alias('agg_result'))
+   
+    elif (sectionName == 'account'):
+        df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result","equity_plan_id")
+        w = Window.partitionBy('pol_no').orderBy('equity_plan_id')
+        df_agg = df.withColumn('sorList', F.collect_list('result').over(w)).groupBy('pol_no').agg(F.max('sorList').alias('agg_result'))
+    else:
+        df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result")
+        df_agg    = df.groupBy("pol_no").agg(F.collect_list("result").alias("agg_result"))
+   
+
+    df_final  = df_agg.withColumn("finalString"+sectionName,createDefaultValues(F.col("agg_result"),F.lit(sectionName),F.lit("False"))).drop("agg_result")
+    return df_final
+
+
+# In[5]:
+
+df_fund = createSection("fund",fund,"Life70").cache()
+df_flat = createSection("flat",policy,"Life70").cache()
+df_account  = createSection("account",fund,"Life70").cache()
+
+
+# In[12]:
+
+#df_fund.where("fund_id !='' and  trim(fund_name) == '' and fund_maturity_date !='00000000'").show(3,False)
+
+
+# In[13]:
+
+#df_fund.show(3,False)
+
+
+# In[19]:
+
+#df_fund.where("fund_id == 'WRD'").show(3,False)
+
+
+# In[6]:
+
+admin_system = "Life70"
+#admin_system = "Andesa"
+df_policy              = sqlContext.table(policy)
+df_rider              = sqlContext.table(rider)
+df_loan               = sqlContext.table(loan)
+df_policy = df_policy.where((F.col("vltn_date")=="2019-12-31")&(F.col("admin_system_code") == admin_system)
+                            &(F.col("policy_status_code").isin('31','88','42','22','43')))
+#df_addPolicy = getAdditionalPolicies()
+#df_policy = df_policy_base.union(df_addPolicy)
+#print(df_policy_base.count())
+#print("gap")
+#print(df_policy.count())
+
+df_rider  = df_rider.where((F.col("vltn_date")=="2019-12-31")&(F.col("admin_system_code") == admin_system)&(F.col("PRODUCT_SEGMENT_TYPE").isNotNull()))
+df_loan   = df_loan.where((F.col("vltn_date")=="2019-12-31")&(F.col("admin_system_code") == admin_system))
+
+df_policy = df_policy.withColumn("company_code",F.when(F.col("company_code")=="AEL" ,"AA").otherwise("BA"))
+
+df_poly_rider = df_policy.join(df_rider, (df_policy.pol_no == df_rider.pol_no),how = "left" ).select(df_policy["*"],
+       df_rider["rider_phase_code"], df_rider["product_segment_type"], df_rider["rider_coi_size_band_code"],df_rider["rider_sub_standard_multiple_percentage"],
+        df_rider["rider_duration"],df_rider["rider_unit_amount"],df_rider["rider_ann_prem_per_unit_amount"],df_rider["rider_ann_prem_amount"],df_rider["rider_status_code"],df_rider["rider_feature_reserve_amount"],
+        df_rider["rider_occupation_code"],df_rider["rider_death_benefit_amount"])
+df_poly_rider.createOrReplaceTempView("df_poly_rider")
+
+df_poly_loan = df_policy.join(df_loan,(df_policy.pol_no == df_loan.pol_no),how = "left" ).select(df_policy["*"],
+                            df_loan["loan_fund_interest_rate"],df_loan["loan_payoff_amount"])
+df_rider1 = df_rider.groupby('pol_no').agg(F.sum('rider_death_benefit_amount').alias('rider_death_benefit_amount'))
+df_poly_loan_rid = df_poly_loan.join(df_rider1,(df_poly_loan.pol_no == df_rider1.pol_no),how = "left").select(df_poly_loan["*"],
+                                                                df_rider1["rider_death_benefit_amount"] )
+
+df_poly_loan_rid.createOrReplaceTempView("df_poly_loan_rid")
+
+
+# In[7]:
+
+def createSection1(sectionName,tableName,admin_system):
+    config          = readConfiguration(ConfigFilePath)
+    colMapping_fund = getColumnList(config,'metadata',sectionName)
+    columnNames     = [row.split(",")[0] for row in colMapping_fund]
+    #df              = sqlContext.table(tableName)
+    if (tableName == 'policy'):
+        df = sqlContext.sql("select * from  df_poly_loan_rid")
+        df = df.withColumn("whlse_ind",F.when((F.col("whlse_ind") == "R"),"0001").when((F.col("whlse_ind") =="W"),"0040"))
+        df = df.withColumn("filler",F.lit("  "))
+        df = df.withColumn("alt_acct_val_amount",F.when(df["alt_acct_val_amount"] < 0,"0").otherwise(df["alt_acct_val_amount"]))
+    else:
+        df = sqlContext.sql("select * from df_poly_rider")
+        df = df.withColumn("1st_smoker_code", F.when((F.col("1st_smoker_code") == "S")|(F.col("1st_smoker_code") == "3")|(F.col("1st_smoker_code") == 5),"1")
+                           .when((F.col("1st_smoker_code")=="N"),"2").otherwise(F.col("1st_smoker_code")))
+        df = df.withColumn("1st_sex_code", F.when((F.col("1st_sex_code") == "5"),"1").when((F.col("1st_sex_code") == "4"),"2").otherwise(F.col("1st_sex_code")))
+        #df = df.withColumn("row_number",F.when((F.col("PRODUCT_SEGMENT_TYPE").startswith("BAS")),'1').otherwise('2'))
+        df = df.withColumn("row_number",F.when(df["PRODUCT_SEGMENT_TYPE"].substr(1,3) == "BAS",'1').otherwise('2'))
+       
+       
+    print("before for loop")
+    for row in colMapping_fund:
+        mapping = row.split(",")
+        if mapping[1] == "D":
+            df = df.withColumn(mapping[0],F.lpad(F.coalesce(F.regexp_replace(df[mapping[0]].cast("decimal("+mapping[2]+","+mapping[3]+")").cast(StringType()),"\\.", ""),F.lit("0")),int(mapping[2]),"0"))
+        elif mapping[1] == "I":
+            df = df.withColumn(mapping[0],F.lpad(F.coalesce(F.regexp_replace(df[mapping[0]].cast(StringType()),"[\\-\\.]", ""),F.lit("0")),int(mapping[2]),"0"))
+        elif mapping[1] == "S":
+            value = mapping[0]
+            df = df.withColumn(mapping[0],F.rpad(F.coalesce(F.regexp_replace(df[mapping[0]].cast(StringType()),"\\.", ""),F.lit(" ")),int(mapping[2])," "))
+
+    print("before concat")
+#     if (tableName != 'policy'):
+#         df        = df.orderBy("rider_phase_code")
+#     io
+    #df = df.select("pol_no",*columnNames)
+    #return df
+    if (tableName == 'policy'):
+        print("inside return policy")
+        df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result")
+        return df
+   
+    print("before agg")
+   
+    df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result","row_number")
+    w = Window.partitionBy('pol_no').orderBy('row_number')
+    df_agg = df.withColumn('sorList', F.collect_list('result').over(w)).groupBy('pol_no').agg(F.max('sorList').alias('agg_result'))
+   
+    df_final  = df_agg.withColumn("finalString"+tableName,createDefaultValues(F.col("agg_result"),F.lit(sectionName),F.lit("False"))).drop("agg_result")
+    return df_final
+   
+#     if (sectionName == 'fund'):
+#         df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result","rider_phase_code")
+#         w = Window.partitionBy('pol_no').orderBy('rider_phase_code')
+#         df_agg = df.withColumn('sorList', F.collect_list('result').over(w)).groupBy('pol_no').agg(F.max('sorList').alias('agg_result'))
+       
+#     else:
+#         df        = df.withColumn("result",F.concat_ws("",*columnNames)).select("pol_no","result")
+#         df_agg    = df.groupBy("pol_no").agg(F.collect_list("result").alias("agg_result"))
+#     df_agg    = df.groupBy("pol_no").agg(F.collect_list("result").alias("agg_result"))
+#     df_agg    = df_agg.orderBy("agg_result", ascending=False)
+#     df_final  = df_agg.withColumn("finalString"+tableName,createDefaultValues(F.col("agg_result"),F.lit(sectionName))).drop("agg_result")
+#     return df_final
+
+
+# In[8]:
+
+df_benefit = createSection1("benefit","benefit","Life70")
+df_policy = createSection1("policy","policy","Life70")
+
+
+# In[35]:
+
+df_benefit.where("pol_no == '049224395'").show(4,False)
+
+
+# In[9]:
+
+df_policy_split =df_policy.withColumn("part1",df_policy["result"].substr(1,87)).withColumn("part2", df_policy["result"].substr(88,173)).withColumn("part3",df_policy["result"].substr(261,171)).withColumn("part4", df_policy["result"].substr(432,101))
+
+
+# In[10]:
+
+df_joinDataframes = df_policy_split.join(df_account,['pol_no'],how = 'left').join(df_fund,['pol_no'],how = 'left').join(df_benefit,['pol_no'],how = 'left').join(df_flat,['pol_no'],how = 'left')
+
+
+# In[11]:
+
+df_joinDataframes = df_joinDataframes.orderBy("pol_no")
+df_joinDataframes = df_joinDataframes.select("part1","finalStringbenefit","finalStringaccount","part2","finalStringflat","part3","finalStringfund","part4")
+
+
+# In[12]:
+
+accountDefault = createRepetationValues("","account","True")
+df_joinDataframes = df_joinDataframes.fillna({'finalStringaccount':accountDefault})
+
+fundDefault = createRepetationValues("","fund","True")
+df_joinDataframes = df_joinDataframes.fillna({'finalStringfund':fundDefault})
+
+
+# In[13]:
+
+df_final = df_joinDataframes.withColumn("result",F.concat(F.col("part1"),F.col("finalStringbenefit"),F.col("finalStringaccount"),F.col("part2"),F.col("finalStringflat"),F.col("part3"),F.col("finalStringfund"),F.col("part4")))
+
+
+# In[14]:
+
+df_final1 = df_final.select("result")
+
+
+# In[15]:
+
+df_final1.coalesce(1).write.format("text").option("header","false").mode("append").save("/user/htumpudi/poly_output_15_12_1")
