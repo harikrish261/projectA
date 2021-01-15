@@ -1,0 +1,431 @@
+------########################################################################################################################
+---------string------Project------------Description--------------------------------------------------------------------------#
+-----|05/21/2019| |Data sourcing|    |Insert data into policy base table for traditional life policy(CAPS)                 #
+------########################################################################################################################
+
+--set hive.vectorized.execution = ture
+--set hive.vectorized.execution.enabled = true
+--set hive.cbo.enable=true;
+--set hive.compute.query.using.stats=true;
+--set hive.stats.fetch.column.stats=true;
+--set hive.stats.fetch.partition.stats=true;
+--set hive.exec.reducers.bytes.per.reducer=<number>
+--set hive.exec.reducers.max=<number>
+--set mapreduce.job.reduces=<number>
+--set hive.auto.convert.join.noconditionaltask = true;
+--set hive.auto.convert.join.noconditionaltask.size = 10000000;
+set hive.auto.convert.join = true;
+set hive.cbo.enable=true;
+set hive.execution.engine=spark;
+set hivevar:TENANT_1=us_actuarial_view;
+set hivevar:TENANT_2=axa_us_caps;
+set hivevar:TABLE_1=visl_policy;
+set hivevar:caps_pmr_benefit_claims=caps_pmr_benefit_claims_monthly ;
+set hivevar:caps_pmr_life_account=caps_pmr_life_account_monthly;
+set hivevar:caps_pmr_master=caps_pmr_master_monthly ;
+set hivevar:caps_pmr_transaction=caps_pmr_transaction_monthly ;
+set hivevar:caps_pmr_non_life_account=caps_pmr_non_life_account_monthly;
+set hivevar:caps_pmr_life_account_lapse=caps_pmr_life_account_lapse_monthly;
+set hivevar:ss_date_var='2019-09-30';
+set hivevar:vltn_date='2019-09-30';
+set hivevar:mstr_ss_date='2019-09-30';
+set hivevar:tran_ss_date='2019-09-30';
+set hivevar:nlacc_ss_date='2019-09-30';
+set hivevar:lacc_ss_date='2019-09-30';
+set hivevar:ben_ss_date='2019-09-30';
+set hivevar:laps_ss_date='2019-09-30';
+
+insert  into table  ${tenant_1}.${table_1}
+select distinct
+lpad(mstr.mr_policy_number,9,'0')   as  pol_no,
+'CAPS'   as  admin_system,
+nvl(from_unixtime(unix_timestamp(mstr.ss_date ,'yyyy-mm-dd'),'yyyy-mm-dd'),'') as ss_date,
+${vltn_date}                                            as vltn_date,
+'VISL' as line_of_business,
+'ELA'    as  company_code,
+mstr.mr_plan   as  plan_code,
+--pending
+'' as business_segment,
+'ELA' as  mdm_admin_system_code,
+'' as  admin_sub_code,
+'' as  segment_product,
+'' as  prod_code,
+'' as  product_group,
+'' as  prod_name,
+case
+    when nvl(from_unixtime(unix_timestamp(mstr.mr_issue_date ,'yyyymmdd'),'yyyy-mm-dd'),'' )= ''  
+    then nvl(from_unixtime(unix_timestamp(mstr.mr_register_date ,'yyyymmdd'),'yyyy-mm-dd'),'')
+else from_unixtime(unix_timestamp(mstr.mr_issue_date ,'yyyymmdd'),'yyyy-mm-dd')
+end                                                                                       as issue_date,
+case
+    when nvl(from_unixtime(unix_timestamp(mstr.mr_issue_date ,'yyyymmdd'),'yyyy-mm-dd'),'' )= ''
+    then year(to_date(from_unixtime(unix_timestamp(mstr.mr_register_date ,'yyyymmdd'),'yyyy-mm-dd')))
+else year(to_date(from_unixtime(unix_timestamp(mstr.mr_issue_date ,'yyyymmdd'))))
+end                                                                                       as issue_year,    
+
+nvl(from_unixtime(unix_timestamp(mstr.mr_register_date  ,'yyyymmdd'),'yyyy-mm-dd'),'') as register_date,
+case
+   when nvl(from_unixtime(unix_timestamp(mstr.mr_register_date ,'yyyymmdd'),'yyyy-mm-dd'),'')=''
+        then ''
+   else substr(mstr.mr_register_date,1,4)
+end  as  register_year,
+tran.mr_premium_payment_status   as  policy_status,
+tran.mr_premium_payment_status   as  source_status,
+
+case
+    when trim(mstr.mr_sex) in ('1','3','5','8','A','B') then 'M'
+    when trim(mstr.mr_sex) in ('2','4','6','9','C','D') then 'F'
+when trim(mstr.mr_sex)  ='0' then 'U'
+    else ''
+end as sex_code,
+
+nvl(from_unixtime(unix_timestamp(mstr.mr_date_of_birth   ,'yyyymmdd'),'yyyy-mm-dd'),'') as date_of_birth,
+mstr.mr_issue_age   as  issue_age,
+case
+    when cast(mstr.mr_issue_age as int) = 0                    then '00'
+    when cast(mstr.mr_issue_age as int) between   1 and  4     then '01'
+    when cast(mstr.mr_issue_age as int) between   5 and  9     then '02'
+    when cast(mstr.mr_issue_age as int) between  10 and 14     then '03'
+    when cast(mstr.mr_issue_age as int) between  15 and 19     then '04'
+    when cast(mstr.mr_issue_age as int) between  20 and 24     then '05'
+    when cast(mstr.mr_issue_age as int) between  25 and 29     then '06'
+    when cast(mstr.mr_issue_age as int) between  30 and 34     then '07'
+    when cast(mstr.mr_issue_age as int) between  35 and 39     then '08'
+    when cast(mstr.mr_issue_age as int) between  40 and 44     then '09'
+    when cast(mstr.mr_issue_age as int) between  45 and 49     then '10'
+    when cast(mstr.mr_issue_age as int) between  50 and 54     then '11'
+    when cast(mstr.mr_issue_age as int) between  55 and 59     then '12'
+    when cast(mstr.mr_issue_age as int) between  60 and 64     then '13'
+    when cast(mstr.mr_issue_age as int) between  65 and 69     then '14'
+    when cast(mstr.mr_issue_age as int) between  70 and 74     then '15'
+    when cast(mstr.mr_issue_age as int) between  75 and 79     then '16'
+    when cast(mstr.mr_issue_age as int) between  80 and 84     then '17'
+    when cast(mstr.mr_issue_age as int) between  85 and 99     then '18'
+    when cast(mstr.mr_issue_age as int) >=100                  then '19'
+end as  issue_age_band_code,
+nvl(from_unixtime(unix_timestamp(tran.mr_effective_date_of_term   ,'yyyymmdd'),'yyyy-mm-dd'),'') as term_eff_date,
+--tran.mr_type_of_termination   as  termination_reason,
+case
+    when tran.mr_type_of_termination='00' then ''
+    when tran.mr_type_of_termination='01' then 'SUR'
+    when tran.mr_type_of_termination='02' then 'DTH'
+    when tran.mr_type_of_termination='03' then 'FOR'
+    when tran.mr_type_of_termination='04' then 'LF'
+    when tran.mr_type_of_termination='05' then 'TE'
+    when tran.mr_type_of_termination='06' then 'TC'
+    when tran.mr_type_of_termination='07' then 'RPL'
+    when tran.mr_type_of_termination='08' then 'ME'
+    when tran.mr_type_of_termination='09' then 'RPL'
+    when tran.mr_type_of_termination='10' then 'FOR'
+    when tran.mr_type_of_termination='12' then 'NTO'
+    when tran.mr_type_of_termination='13' then 'NTO'
+    when tran.mr_type_of_termination='14' then 'OA'
+    when tran.mr_type_of_termination='30' then 'NTO'
+    when tran.mr_type_of_termination='31' then 'NTO'
+    when tran.mr_type_of_termination='32' then 'NTO'
+    when tran.mr_type_of_termination='33' then 'NTO'
+    when tran.mr_type_of_termination='34' then 'NTO'
+    when tran.mr_type_of_termination='35' then 'NTO'
+    when tran.mr_type_of_termination='36' then 'NTO'
+    when tran.mr_type_of_termination='37' then 'NTO'
+    when tran.mr_type_of_termination='38' then 'NTO'
+    when tran.mr_type_of_termination='39' then 'NTO'
+    when tran.mr_type_of_termination='51' then 'SUR'
+    when tran.mr_type_of_termination='52' then 'DTH'
+    when tran.mr_type_of_termination='53' then 'FOR'
+    when tran.mr_type_of_termination='54' then 'LF'
+    when tran.mr_type_of_termination='55' then 'TE'
+    when tran.mr_type_of_termination='56' then 'TC'
+    when tran.mr_type_of_termination='57' then 'RPL'
+    when tran.mr_type_of_termination='58' then 'ME'
+end as termination_reason,
+nvl(from_unixtime(unix_timestamp(ben.mr_date_of_death  ,'yyyymmdd'),'yyyy-mm-dd'),'') as  date_of_death,
+floor(months_between((to_date(from_unixtime(unix_timestamp(current_date() ,'yyyymmdd')))) ,(to_date(from_unixtime(unix_timestamp(mstr.mr_date_of_birth ,'yyyymmdd')))))/12) as attained_age,
+nvl(trim(c_state.standard_value),'')            as  issue_state,
+cast(lacc.mr_cash_value   as  Decimal(15,2))    as   cash_value,
+case
+when cast(lacc.mr_cash_value as decimal(15,2)) = 0.00                            then '00'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 0.01 and 24999.99         then '01'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 25000.00 and 49999.99     then '02'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 50000.00 and 99999.99     then '03'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 100000.00 and 199999.99   then '04'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 200000.00 and 249999.99   then '05'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 250000.00 and 499999.99   then '06'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 500000.00 and 999999.99   then '07'
+when cast(lacc.mr_cash_value as decimal(15,2)) between 1000000.00 and 4999999.99 then '08'
+when cast(lacc.mr_cash_value as decimal(15,2)) >= 5000000.00                     then '09'
+end as cash_value_band_code,
+nvl(trim(t_state.standard_value),'')                 as  tax_state,
+lpad(cast(mstr.mr_premium_tax_city                   as string),3,0)   as  tax_city,
+nvl(trim(s_residence.standard_value),'')             as  residence_state,
+mstr.mr_title_identification_1   as  title_id_code,
+'' as  whlse_ind,
+lacc.mr_death_benefit_option   as  dth_bnft_option,
+nvl(from_unixtime(unix_timestamp(mstr.mr_date_of_birth_of_2nd_insd ,'yyyymmdd'),'yyyy-mm-dd'),'')  as  isrd_brth_2nd_date,
+case
+    when trim(nlacc.mr_sex_combination) = '11' then 'M'
+    when trim(nlacc.mr_sex_combination) = '22' then 'F'
+    when trim(nlacc.mr_sex_combination) = '33' then 'U'
+    when trim(nlacc.mr_sex_combination) = '12' and trim(mstr.mr_sex) in ('2','4','6') then 'M'
+else ''
+end as isrd_sex_2nd_code,
+mstr.mr_issue_age_of_2nd_insured   as  isrd_iss_2nd_age,
+case
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) = 0                    then '00'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between   1 and  4     then '01'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between   5 and  9     then '02'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  10 and 14     then '03'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  15 and 19     then '04'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  20 and 24     then '05'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  25 and 29     then '06'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  30 and 34     then '07'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  35 and 39     then '08'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  40 and 44     then '09'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  45 and 49     then '10'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  50 and 54     then '11'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  55 and 59     then '12'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  60 and 64     then '13'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  65 and 69     then '14'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  70 and 74     then '15'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  75 and 79     then '16'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  80 and 84     then '17'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) between  85 and 99     then '18'
+    when cast(mstr.mr_issue_age_of_2nd_insured as int) >=100                  then '19'
+end as  issage_2nd_band_cd,
+cast(lacc.mr_policy_account_amount   as  Decimal(15,2))    as   tot_acct_val_amt,
+null   as   sa_acct_val_amt,
+cast(lacc.mr_policy_account_amount   as  Decimal(15,2))    as   ga_acct_val_amt,
+null   as   guar_acct_val_amt,
+null   as   indexed_acct_val_amt,
+null   as   guar_min_cred_rate,
+nvl(from_unixtime(unix_timestamp(tran.mr_due_date_of_next_premium ,'yyyymmdd'),'yyyy-mm-dd'),'')  as  next_prem_due_date,
+cast(lacc.mr_basic_policy_modal_prem   as  Decimal(15,2))    as   modal_premium,
+tran.mr_mode_of_next_premium   as  mode_of_nxt_prem,
+cast(lacc.mr_eoc_death_benefit   as  Decimal(15,2))    as   pol_dth_bnft_amt,
+case
+    when mstr.mr_joint_life_rating = '00' then  'S'        
+    when mstr.mr_joint_life_rating = '01' then  'S'        
+    when mstr.mr_joint_life_rating = '02' then  'S'
+    when mstr.mr_joint_life_rating = '03' then  'S'              
+    when mstr.mr_joint_life_rating = '04' then  'N'
+    when mstr.mr_joint_life_rating = '05' then  'S'
+    when mstr.mr_joint_life_rating = '06' then  'N'
+    when mstr.mr_joint_life_rating = '07' then  'N'
+    when mstr.mr_joint_life_rating = '08' then  'S'
+end as smoker_code,
+cast(mstr.mr_valuation_amount   as  Decimal(15,2))    as   face_amount,
+case
+when cast(mstr.mr_valuation_amount as decimal(15,2)) = 0.00                            then '00'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 0.01 and 24999.99         then '01'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 25000.00 and 49999.99     then '02'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 50000.00 and 99999.99     then '03'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 100000.00 and 199999.99   then '04'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 200000.00 and 249999.00   then '05'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 250000.00 and 499999.00   then '06'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 500000.00 and 999999.00   then '07'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) between 1000000.00 and 4999999.99 then '08'
+when cast(mstr.mr_valuation_amount as decimal(15,2)) >= 5000000.00                     then '09'
+end as face_amount_band_code,
+
+case
+when (mr_type_of_pending_processing in( '03','17') or mr_2nd_type_of_pndg_processing in ('03','17')) and mr_premium_payment_status <> 40 then 'Y'
+when mr_premium_payment_status = 40 and mr_type_of_termination = '02' then 'N'
+else ''    
+end                                                                                    as death_claim_pending,
+
+nvl(trim(s_office.standard_value),'')                            as  servicing_office,
+trim(t_billing.standard_value)                                   as  type_of_billing,
+mstr.mr_type_of_pending_processing   as  pend_proc_code,
+mstr.mr_2nd_type_of_pndg_processing   as  pend_proc_2nd_code,
+mstr.mr_type_of_underwriting   as  underwriting_code,
+mstr.mr_preferred_underwriting_clas   as  preferred_uw_class   ,
+'' as  age_basis,
+'' as  non_forfeit_code,
+mstr.mr_substandard_letter_rating   as  sub_standard_rating  ,
+cast(lacc.mr_eoc_curr_surrender_charge   as  Decimal(15,2))    as   surr_chrg_amt,
+
+--Remove hard coding and Refer from reference table
+case
+   when trim(mstr.mr_substandard_letter_rating) in ('00','01') then ''
+   when trim(mstr.mr_substandard_letter_rating) ='02'         then 'B'  
+   when trim(mstr.mr_substandard_letter_rating) ='03'         then 'C'  
+   when trim(mstr.mr_substandard_letter_rating) ='04'         then 'D'
+   when trim(mstr.mr_substandard_letter_rating) ='05'         then 'E'
+   else ''
+end as  sub_class_code,
+tran.mr_type_supplemental_annuity   as  modified_endowment_code,
+case
+    when trim(tran.mr_mode_of_next_premium)  ='2' then cast(mr_amount_of_next_premium as decimal(15,2))*2  
+when trim(tran.mr_mode_of_next_premium)  ='3' then cast(mr_amount_of_next_premium as decimal(15,2))*4
+when trim(tran.mr_mode_of_next_premium)  ='4' then cast(mr_amount_of_next_premium as decimal(15,2))*12
+    else mr_amount_of_next_premium
+end as annual_prem_amt,
+cast(mstr.mr_unit_amount_one   as  decimal(15,2))    as   unit_amt,
+nvl(from_unixtime(unix_timestamp(tran.mr_flat_extra_prem_term_date_1,'yyyymmdd'),'yyyy-mm-dd'),'')  as  fx_cease_date_1st,
+tran.mr_flat_extra_premium_type_1   as  fx_type_1st,
+mstr.mr_reinsurance_identification   as  reinsurance_code,
+'' as  adm_prod_code,
+cast(lacc.mr_cash_value   as  Decimal(15,2))    as   contract_cash_value,
+'' as  premium_tax,
+nvl(from_unixtime(unix_timestamp(lacc.mr_date_of_next_monthaversary ,'yyyymmdd'),'yyyy-mm-dd'),'')  as  paid_to_date,
+--'' as paid_to_date,
+null   as   scheduled_mdgb_premium,
+null   as   forfeit_face_amt,
+'' as  forfeit_expiry_date,
+cast(lacc.mr_eoc_death_benefit   as  Decimal(15,2))    as   cont_dth_bnft_amt,
+cast(lacc.mr_current_risk_premium   as  Decimal(15,2))    as   net_amt_at_risk,
+null   as   comm_target_prem_amt,
+null   as   target_prem_amt,
+null   as   accum_val_amt,
+cast(tran.mr_flat_extra_premium_rate_1   as  Decimal(15,2))    as   fx_ann_prem_per_unit,
+tran.mr_flat_extra_premium_type_1   as  fx_duration,
+'' as  fx_bnft_no,
+null   as   rsrv_basis_amt,
+null   as   basic_rsrv_amt,
+null   as   excess_int_rsrv_amt,
+'' as  cvat_ind,
+'' as  champ2000_option,
+'' as  pdup_dbg_option,
+cast(laps.mr_ann_basic_pol_modal_prem_2   as  Decimal(15,2))    as   modal_2nd_prem_amt,
+null   as   sched_prem_fund_val_amt,
+null   as   actual_prem_fund_val_amt,
+'' as  shadow_fund_id,
+null   as   load_prem_amt,
+'' as  record_type,
+null   as   excess_load_pct,
+null   as   accum_gross_prem_amt,
+null   as   accum_partial_wdrw_amt,
+'' as  cash_val_plus_ind,
+null   as   alt_dth_bnft_amt,
+null   as   alt_acct_val_amt,
+null   as   alt_cash_val_amt,
+null   as   gla_premium_amt,
+null   as   gls_premium_amt,
+'' as  ind_bus_ind,
+case
+    when trim(mstr.mr_disability_benefit) in ('00','000','0') then 'N'
+    else 'Y'
+end    as  dpw1_yrly_term_ind,
+'' as  dpw2_mthly_exp_ind,
+'' as  dpw3_add_ins_ind,
+tran.mr_fpi_prov_disability_rating   as  dpw4_chld_term_ind,
+'' as  dpw5_rstr_ind,
+cast(mstr.mr_valuation_amount   as  Decimal(15,2))    as   initial_face_amt,
+'' as  face_change_date,
+lacc.mr_death_benefit_option   as  initial_dbo,
+'' as  dbo_change_date,
+null   as   sched_annual_prem_amt,
+CASE
+    when trim(mstr.mr_sex) in ('8', '9', 'A', 'B', 'C', 'D')  then 'Y'
+    else 'N'
+end    as  unisex_code,
+null   as   dbg_prem_amt,
+'' as  coi_size_band        ,
+'' as  sub_standard_multiple,
+'' as  duration             ,
+null   as   benefit_units        ,
+null   as   factor_per_unit      ,
+null   as   benefit_ann_prem     ,
+'' as  rider_status         ,
+null   as   rider_reserve        ,
+'' as  occupation           ,
+----pending
+case
+    when mstr.mr_joint_life_rating = '00' then  'S'        
+    when mstr.mr_joint_life_rating = '01' then  'S'        
+    when mstr.mr_joint_life_rating = '02' then  'S'
+    when mstr.mr_joint_life_rating = '03' then  'S'              
+    when mstr.mr_joint_life_rating = '04' then  'N'
+    when mstr.mr_joint_life_rating = '05' then  'N'
+    when mstr.mr_joint_life_rating = '06' then  'S'
+    when mstr.mr_joint_life_rating = '07' then  'S'
+    when mstr.mr_joint_life_rating = '08' then  'N'
+end  as  isrd_smkr_2nd_code,
+nlacc.mr_sub_ltr_rating_2nd_insd   as  sub_class_2nd_code,
+case
+   when trim(nlacc.mr_sex_combination) ='33' then 'Y'
+   else 'N'
+end   as  unisex_2nd_ind,
+'' as  first_death_date,
+'' as  first_death_ind,
+null   as   fx_1isrd_1rate_amt,
+null   as   fx_1isrd_2rate_amt,
+'' as  fx_1isrd_2expy_dt,
+null   as   fx_1isrd_3rate_amt,
+'' as  fx_1isrd_3expy_dt,
+null   as   fx_2isrd_1rate_amt,
+'' as  fx_2isrd_1expy_dt,
+null   as   fx_2isrd_2rate_amt,
+'' as  fx_2isrd_2expy_dt,
+null   as   fx_2isrd_3rate_amt,
+'' as  fx_2isrd_3expy_dt,
+null   as   jnt_pfx_rate_amt,
+'' as  jnt_pfx_expy_date,
+null   as   jnt_tfx_rate_amt,
+'' as  jnt_tfx_expy_date,
+--pending
+tran.mr_sa_unit_number    as  stat_acc_unit_no,
+mstr.mr_type_of_underwriting   as  typ_udwrt_code,
+null   as   prem_rate_amt,
+cast(tran.mr_fpi_prov_unit_amount   as  decimal(15,2))    as   fpi_prov_unit_amount,
+current_timestamp() as ds_load_tstp
+
+
+from (select * from ${tenant_2}.${caps_pmr_master}  where mr_plan in ('610','0610') and ss_date=${mstr_ss_date}) mstr
+left join ${tenant_2}.${caps_pmr_transaction}        tran  on mstr.mr_policy_number=tran.mr_policy_number and tran.ss_date=${tran_ss_date}
+left join ${tenant_2}.${caps_pmr_non_life_account}     nlacc on mstr.mr_policy_number=nlacc.mr_policy_number and nlacc.ss_date=${nlacc_ss_date}
+left join ${tenant_2}.${caps_pmr_life_account}          lacc  on mstr.mr_policy_number=lacc.mr_policy_number and lacc.ss_date=${lacc_ss_date}
+left join ${tenant_2}.${caps_pmr_benefit_claims}       ben   on mstr.mr_policy_number=ben.mr_policy_number   and ben.ss_date=${ben_ss_date}
+left join ${tenant_2}.${caps_pmr_life_account_lapse}   laps   on mstr.mr_policy_number=laps.mr_policy_number and laps.ss_date=${laps_ss_date}
+
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'contract state'
+  group by source_value, standard_value
+ ) c_state
+on trim(mstr.mr_contract_state) = trim(c_state.source_value)
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'orig state of residence'
+ ) s_residence
+on trim(mstr.mr_orig_state_of_residence) = trim(s_residence.source_value)
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'premium tax state'
+ ) t_state
+on trim(mstr.mr_premium_tax_state) = trim(t_state.source_value)
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'type of termination'
+ ) t_termination
+on trim(tran.mr_type_of_termination) = trim(t_termination.source_value)
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'servicing office'
+ ) s_office
+on cast(trim(mstr.mr_servicing_office) as int) = CAST (trim(s_office.source_value) as int)
+
+left join (
+  select source_value, standard_value
+  from ${TENANT_1}.${reference_values}
+  where source_system = 'CAPS'
+  and field_name = 'type of billing'
+ ) t_billing
+on trim(mstr.mr_type_of_billing) = trim(t_billing.source_value) ;
+--left join (
+--   select source_value, standard_value
+--   from ${TENANT_1}.${reference_values}
+--   where source_system = 'CAPS'
+--   and field_name = 'mode of next premium'
+--  ) n_premium
+--on trim(tran.mr_mode_of_next_premium) = trim(n_premium.source_value);
